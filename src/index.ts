@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 import "dotenv/config";
-import { randomUUID } from "node:crypto";
 import express, { Request, Response } from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -80,46 +79,34 @@ async function startStdio() {
   await server.connect(transport);
 }
 
-// --- HTTP transport ---
+// --- HTTP transport (Stateless) ---
 
 function startHttp() {
   const app = express();
   app.use(express.json());
 
-  const transports = new Map<string, StreamableHTTPServerTransport>();
-
-  // POST /mcp  — client-to-server messages (including initialize)
+  // POST /mcp — stateless handling so server restarts never invalidate sessions
   app.post("/mcp", async (req: Request, res: Response) => {
-  const server = createServer();
-  const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: undefined,
-  });
+    try {
+      const server = createServer();
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: undefined,
+      });
 
-  res.on("close", () => {
-    transport.close();
-    server.close();
-  });
+      res.on("close", () => {
+        transport.close();
+        server.close();
+      });
 
-  await server.connect(transport);
-  await transport.handleRequest(req, res, req.body);
-});
-  // Health check
-  app.get("/health", (_req: Request, res: Response) => {
-    res.json({ status: "ok" });
-  });
-
-  const port = getPort();
-  app.listen(port, () => {
-    console.log(
-      `Pterodactyl MCP server listening on http://localhost:${port}/mcp`,
-    );
-  });
-}
-
-// --- Start ---
-
-if (transportMode === "stdio") {
-  startStdio();
-} else {
-  startHttp();
-}
+      await server.connect(transport);
+      await transport.handleRequest(req, res, req.body);
+    } catch (error) {
+      console.error("Error handling MCP request:", error);
+      if (!res.headersSent) {
+        res.status(500).json({
+          jsonrpc: "2.0",
+          error: {
+            code: -32603,
+            message: "Internal server error",
+          },
+          id:
