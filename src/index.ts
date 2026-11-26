@@ -9,8 +9,6 @@ import { PterodactylClient } from "./lib/pterodactyl.js";
 import { WebSocketManager } from "./lib/websocket.js";
 import { registerTools, type ToolClients } from "./tools/index.js";
 
-// --- CLI args / env ---
-
 const transportMode = process.argv.includes("--stdio") ? "stdio" : "http";
 
 function getPort(): number {
@@ -20,8 +18,6 @@ function getPort(): number {
   }
   return parseInt(process.env.PORT ?? "3000", 10);
 }
-
-// --- Pterodactyl clients (one per API scope) ---
 
 const PTERO_URL = process.env.PTERODACTYL_URL;
 const PTERO_APP_KEY = process.env.PTERODACTYL_APP_KEY;
@@ -58,8 +54,6 @@ const scopes = [
 ].filter(Boolean);
 console.error(`Pterodactyl API scopes: ${scopes.join(", ")}`);
 
-// --- MCP Server Factory ---
-
 function createServer(): McpServer {
   const server = new McpServer({
     name: "pterodactyl-mcp",
@@ -71,21 +65,16 @@ function createServer(): McpServer {
   return server;
 }
 
-// --- Stdio transport ---
-
 async function startStdio() {
   const server = createServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }
 
-// --- HTTP transport (Stateless) ---
-
 function startHttp() {
   const app = express();
   app.use(express.json());
 
-  // POST /mcp — stateless handling so server restarts never invalidate sessions
   app.post("/mcp", async (req: Request, res: Response) => {
     try {
       const server = createServer();
@@ -109,4 +98,24 @@ function startHttp() {
             code: -32603,
             message: "Internal server error",
           },
-          id:
+          id: null,
+        });
+      }
+    }
+  });
+
+  app.get("/health", (_req: Request, res: Response) => {
+    res.json({ status: "ok" });
+  });
+
+  const port = getPort();
+  app.listen(port, () => {
+    console.log(`Pterodactyl MCP server listening on http://localhost:${port}/mcp`);
+  });
+}
+
+if (transportMode === "stdio") {
+  startStdio();
+} else {
+  startHttp();
+}
