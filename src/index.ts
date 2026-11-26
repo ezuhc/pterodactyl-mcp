@@ -90,74 +90,19 @@ function startHttp() {
 
   // POST /mcp  — client-to-server messages (including initialize)
   app.post("/mcp", async (req: Request, res: Response) => {
-    const sessionId = req.headers["mcp-session-id"] as string | undefined;
-
-    // Existing session
-    if (sessionId) {
-      const transport = transports.get(sessionId);
-      if (transport) {
-        await transport.handleRequest(req, res, req.body);
-        return;
-      }
-      res.status(400).json({
-        jsonrpc: "2.0",
-        error: { code: -32000, message: "Invalid session" },
-        id: null,
-      });
-      return;
-    }
-
-    // New session
-    const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: () => randomUUID(),
-    });
-
-    transport.onclose = () => {
-      if (transport.sessionId) {
-        transports.delete(transport.sessionId);
-      }
-    };
-
-    const server = createServer();
-    await server.connect(transport);
-    await transport.handleRequest(req, res, req.body);
-
-    if (transport.sessionId) {
-      transports.set(transport.sessionId, transport);
-    }
+  const server = createServer();
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: undefined,
   });
 
-  // GET /mcp  — SSE stream for server-to-client notifications
-  app.get("/mcp", async (req: Request, res: Response) => {
-    const sessionId = req.headers["mcp-session-id"] as string | undefined;
-    if (!sessionId || !transports.has(sessionId)) {
-      res.status(400).json({
-        jsonrpc: "2.0",
-        error: { code: -32000, message: "Invalid session" },
-        id: null,
-      });
-      return;
-    }
-    const transport = transports.get(sessionId)!;
-    await transport.handleRequest(req, res);
+  res.on("close", () => {
+    transport.close();
+    server.close();
   });
 
-  // DELETE /mcp  — session termination
-  app.delete("/mcp", async (req: Request, res: Response) => {
-    const sessionId = req.headers["mcp-session-id"] as string | undefined;
-    if (!sessionId || !transports.has(sessionId)) {
-      res.status(400).json({
-        jsonrpc: "2.0",
-        error: { code: -32000, message: "Invalid session" },
-        id: null,
-      });
-      return;
-    }
-    const transport = transports.get(sessionId)!;
-    await transport.handleRequest(req, res);
-    transports.delete(sessionId);
-  });
-
+  await server.connect(transport);
+  await transport.handleRequest(req, res, req.body);
+});
   // Health check
   app.get("/health", (_req: Request, res: Response) => {
     res.json({ status: "ok" });
